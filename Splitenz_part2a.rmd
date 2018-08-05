@@ -1,0 +1,690 @@
+---
+title: "Split Enz Lyric Sentiment Analysis"
+output:
+  html_document:
+    always_allow_html: yes
+    highlight: pygments
+  pdf_document: default
+  word_document: default
+---
+Phil Nelson
+
+#Split Enz History
+
+Split Enz was one of the most iconic and popular New Zealand Bands in the 1970's and 1980's. I'm a fan of Split Enz which is the inspiration for this post and data analysis. This is the second post based on my Split Enz lyrics analysis of their 9 studio albums which contain 91 songs released during the period 1975 - 1984.
+
+##Summary of previous post
+
+In the first post we mined Split Enz lyric text from the internet and did some exploratory analysis to become more familiar with various aspects of Split Enz song lyrics.  
+
+In addition to learning numerous facts about the songs, hits and word counts we also examined the most frequent words used in Split Enz lyrics.  The lexical diversity (How many unique words per song) and the lexical density (ratio of unique words to total number of words) were examined.  We found that most but not all *Top 100* hits had lower lexical density (except "Six Months In A Leaky Boat") than average.
+
+##Lexical Diversity
+
+While we saw some general trends towards lower lexical density for Split Enz hit songs we did not examine the lexical diversity of hits and the various chart levels.  
+
+Now let's examine this now and look at the lexical diversity plot from post 1 plus add some information about where the hits fall. Then we will examine this against the NZ song chart levels (*Top 10, Top 100, Uncharted*) to see if we can find any insight.
+
+
+###Plan for Split Enz posts in three parts:
+
+  * Part 1 - Split Enz Introduction, Text Mining and Exploratory Analysis  
+
+  * Part 2.a - Sentiment Analysis (this post)
+  * Part 2.b - Natural Language Processing (NLP) (next post)
+  
+  * Part 3 - Analytics using Machine Learning
+
+Lets load the R packages used in the analysis:
+
+```{r load-packages, message=FALSE, warning = FALSE}
+#load packages
+library(dplyr) #data manipulation
+library(ggplot2) #visualizations
+library(gridExtra) #viewing multiple plots together
+library(tidytext) #text mining
+library(RColorBrewer)
+library(tm)
+library(wordcloud)
+library(readxl)
+library(yarrr)  #Pirate plot
+library(tidyr)
+library(knitr) # for dynamic reporting
+library(kableExtra) # create a nicely formated HTML table
+library(formattable) # for the color_tile function
+library(ggrepel)
+library(colorspace)
+```
+
+Let's import and examine the data:
+
+```{r}
+Split_Enz_2 <- read_excel('Split_Enz_2.xlsx')
+glimpse(Split_Enz_2)
+
+#set up theme for lyrics
+theme_lyrics <- function() 
+{
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.text.x = element_blank(), 
+        axis.ticks = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.position = "none")
+}
+
+```
+
+###Lexical Diversity per Year
+
+Lexical diversity is a representation of how many unique words are used in a song. Every point in the plot below represents a song.   
+
+```{r message=FALSE, warning = FALSE, fig.width = 8, fig.height = 4, fig.align = "center"}
+
+#define some colors to use throughout based on the palette of the numerous True Colours #album covers
+my_colors <- c("#C50A51", "#369050", "#106BBA", "#FC8622", "#ACC006")
+
+Split_Enz_2 <- Split_Enz_2 %>%
+  mutate(charted = 
+           ifelse(Split_Enz_2$NZ_chart %in% 1:100, "Charted", "Uncharted"))
+Split_Enz_2 <- Split_Enz_2 %>%
+  mutate(period = 
+            ifelse(Split_Enz_2$year %in% 1975:1979, "'75-79", 
+            ifelse(Split_Enz_2$year %in% 1980:1982, "'80-82", 
+            ifelse(Split_Enz_2$year %in% 1983:1984, "'83-84", 
+                                                "NA"))))
+
+Split_Enz_2_cat <- Split_Enz_2 %>%
+  mutate(NZsong_chart =
+           ifelse(Split_Enz_2$NZ_chart %in% 1:10, "Top 10", 
+           ifelse(Split_Enz_2$NZ_chart %in% 11:100, "Top 100", "Uncharted")))
+
+charted_songs_over_time <- Split_Enz_2 %>% #selects songs in NZ_Chart
+  filter(NZ_chart > 0) %>%
+  group_by(period, songs,year) %>%
+  summarise(number_of_songs = n())
+
+lex_diversity_per_year <- Split_Enz_2_cat %>%
+  unnest_tokens(word, lyrics) %>%
+  group_by(NZsong_chart,songs) %>%
+  mutate(lex_diversity = n_distinct(word)) %>%
+  select(songs, period, NZsong_chart, lex_diversity) %>%
+  distinct() %>% #To obtain one record per song
+  ungroup()
+
+label_hits2 <- lex_diversity_per_year %>% #filter to select plot labels
+filter(songs %in% charted_songs_over_time$songs)
+
+lex_diversity_per_year <- Split_Enz_2_cat %>%
+  unnest_tokens(word, lyrics) %>%
+  group_by(songs,year) %>%
+  summarise(lex_diversity = n_distinct(word)) %>%
+  arrange(desc(lex_diversity)) 
+
+label_hits <- lex_diversity_per_year %>%
+  filter(songs %in% charted_songs_over_time$songs)
+
+label_all <- lex_diversity_per_year %>%
+  filter(songs %in% lex_diversity_per_year$songs)
+
+diversity_plot2 <- lex_diversity_per_year %>%
+  ggplot(aes(year, lex_diversity)) + 
+  scale_x_continuous(breaks = round(seq(min(Split_Enz_2$year), max(Split_Enz_2$year), by = 1),1)) +
+  geom_point(color = "#106BBA",
+             alpha = .3, 
+             size = 3,  
+             position = "identity") + 
+  #stat_smooth(color = "black", 
+  #            se = FALSE, 
+  #            method = "lm") +
+  geom_smooth(aes(x = year, y = lex_diversity), 
+              se = FALSE,
+              color = "blue", 
+              lwd = 1, linetype = 3) +
+  geom_text(data = label_hits, aes(year,lex_diversity, label = label_hits$songs), hjust=1.05, size=3, color="dark red") +
+  geom_point(data=label_hits, aes(year,lex_diversity, label = label_hits$songs),colour="#C50A51",size = 3,alpha = .8) +
+  ggtitle("Lexical diversity (with Charted Songs in Red)") + 
+  xlab("Year") + 
+  ylab("") +
+  scale_color_manual(values = my_colors) + theme_classic() +
+  theme(axis.text.x = element_text(size=9, angle=90))
+
+plot(diversity_plot2)
+```
+
+Overall as an initial impression we can see most of the named charted hits have a similiar diversity to uncharted songs.
+
+###Lexical Diversity per Period:
+
+Let's now deconstruct the lexical diversity by period and by chart level using a pirate plot.
+
+A pirate plot is an advanced method of plotting a continuous dependent variable, such as the word count, as a function of a categorical independent variable, like time period or chart level. Every coloured point circle in this pirate plot below represents a song.
+
+In the pirate plot below the data is reorganised into *Top 10*, *Top 100* and *Uncharted tracks* and is organised into 3 time periods to see if there are any trends in these groupings.
+
+The straight lines in the pirate plot show the average value of distinct word counts for the specified group.  Unlike lexical density where most hits had lower lexical density (and more repetition) there isn't much of a trend visible either by chart level or by time period, except of course for the song "Dirty Creature".
+
+
+```{r fig.width = 8, fig.height = 5, fig.align = "center"}
+lex_diversity_per_year <- Split_Enz_2_cat %>%
+  unnest_tokens(word, lyrics) %>%
+  group_by(NZsong_chart,songs) %>%
+  mutate(lex_diversity = n_distinct(word)) %>%
+  select(songs, period, NZsong_chart, lex_diversity) %>%
+  distinct() %>% #To obtain one record per song
+  ungroup()
+
+pirateplot(formula =  lex_diversity ~ period + NZsong_chart, #Formula
+   data = lex_diversity_per_year, #Data frame
+   xlab = NULL, ylab = "Song Distinct Word Count", #Axis labels
+   main = "Lexical Diversity Per Period and NZ Chart Level", #Plot title
+   pal = "google", #Color scheme
+   point.o = .55, #Points
+   avg.line.o = 1, #Turn on the Average/Mean line
+   theme = 0, #Theme
+   point.pch = 16, #Point `pch` type
+   point.cex = 1.5, #Point size
+   jitter.val = .1, #Turn on jitter to see the songs better
+   cex.lab = .9, cex.names = .7) #Axis label size
+
+text(2, 56, labels = "I Got You",cex=0.7,col="dark red")
+text(0.7, 105, labels = "Six Months In\n A Leaky Boat",cex=0.7,col="dark red")
+arrows(1.3, 104, 1.8, 104, length = .1,col="dark red")
+text(0.99, 221, labels = "Dirty Creature",cex=0.7,col="dark red")
+text(0.7, 80, labels = "History Never\n Repeats",cex=0.7,col="dark red")
+arrows(1.3, 80, 1.8, 83, length = .1,col="dark red")
+text(3.5, 92, labels = "One Step Ahead",cex=0.7,col="dark red")
+arrows(2.7, 92, 2.1, 92, length = .1,col="dark red")
+text(9, 13, labels = "Mental Notes",cex=0.7,col="dodgerblue4")
+text(11, 10, labels = "Ninnie\n Knees Up",cex=0.7,col="darkorange4")
+text(7, 64, labels = "Strait\n Old Line",cex=0.7,col="darkorange4")
+text(7, 130, labels = "Message\n To My Girl",cex=0.7,col="darkorange4")
+text(7, 102, labels = "I Walk Away",cex=0.7,col="darkorange4")
+text(6, 96, labels = "I Hope\n I Never",cex=0.7,col="dark red")
+text(5, 59, labels = "My Mistake",cex=0.7,col="dodgerblue4")
+text(5, 77, labels = "I See Red",cex=0.7,col="dodgerblue4")
+```
+
+Overall there is not too much variation in the mean values in the plot above. It is interesting that there is less variation in *Uncharted* songs during the 1980-1982 period. However, in this same period "Dirty Creature" increases the average song distinct word count for *Top 10* hits compared to the other categories. 
+
+On the 1984 album "See Ya 'Round" the very last Split Enz song "Ninnie Knees Up" (lex_diversity=22) doesn't seem to have a lot of favourable reviews. In 1975 the short (34sec) song "Mental Notes" (lex_diversity=23) at the end of the first album of the same name is also an outlier.
+
+### Create a tidy dataframe with word granularity
+
+This creates a dataframe with one element per word
+
+```{r}
+#Create tidy text format: Unnested, Unsummarized, -Undesirables, Stop and Short words
+splitenz_tidy <- Split_Enz_2 %>%
+  unnest_tokens(word, lyrics) #%>%
+#  anti_join(stop_words)
+glimpse(splitenz_tidy)
+```
+
+```{r}
+undesirable_words <- c("ha", "ill", "x2", "doesnt",
+                       "id", "ho", "youre", "ive", "im",
+                       "ooh", "la", "dont", "whos", "youll",
+                       "ya", "itll", "ah", "eyay", "tis","hey")
+
+#Create tidy text format: Unnested, Unsummarized, -Undesirables, Stop and Short words
+splitenz_tidy2 <- Split_Enz_2_cat %>%
+  unnest_tokens(word, lyrics) %>%
+  anti_join(stop_words) %>%
+  filter(!word %in% undesirable_words)
+glimpse(splitenz_tidy2)
+```
+
+###Sentimental journey
+
+Sentiment Analysis aims to determine the attitude of text with respect to some topic or the overall contextual polarity or emotional reaction.
+
+A basic task in sentiment analysis is classifying the polarity of a given text at the document, sentence, or feature/aspect level-whether the expressed opinion in a document, a sentence or an entity feature/aspect is positive, negative, or neutral. Advanced, "beyond polarity" sentiment classification looks, for instance, at emotional states such as "angry", "sad", and "happy".
+
+### Explore Sentiment Lexicons
+
+The tidytext package in R includes a dataset called sentiments which provides several distinct lexicons. These lexicons are dictionaries of words with an assigned sentiment category or value. The tidytext package provides three general purpose lexicons:
+
+*AFINN* lexicon: assigns words with a score that runs between -5 and 5, with negative scores indicating negative sentiment and positive scores indicating positive sentiment
+
+*Bing* lexicon: assigns words into positive and negative categories
+
+*NRC* lexicon: assigns words into one or more of the following ten categories: positive, negative, anger, anticipation, disgust, fear, joy, sadness, surprise, and trust
+
+In order to examine the lexicons a data frame called new_sentiments is created. A financial lexicon is filtered out, and a binary (also described as polar) sentiment field for the AFINN lexicon is created by converting the numerical score to positive or negative, and add a field that holds the distinct word count for each lexicon.
+
+*new_sentiments* has one column with the different sentiment categories, so for a better view of the word counts per lexicon, per category, use spread() from tidyr to pivot those categories into separate fields. Take advantage of the knitr and kableExtra packages in the my_kable_styling() function you created earlier. Color is added to the chart using color_tile() and color_bar() from formattable to create a nicely formatted table. The table is printed out to examine the differences between each lexicon.
+
+```{r fig.width = 6, fig.height = 4, fig.align = "center"}
+library(knitr) # for dynamic reporting
+library(kableExtra) # create a nicely formated HTML table
+library(formattable) # for the color_tile function
+
+#Customize the text tables for consistency using HTML formatting
+my_kable_styling <- function(dat, caption) {
+  kable(dat, "html", escape = FALSE, caption = caption) %>%
+  kable_styling(bootstrap_options = c("striped", "condensed", "bordered"),
+                full_width = FALSE)
+}
+
+new_sentiments <- sentiments %>% #From the tidytext package
+  filter(lexicon != "loughran") %>% #Remove the finance lexicon
+  mutate( sentiment = ifelse(lexicon == "AFINN" & score >= 0, "positive",
+                              ifelse(lexicon == "AFINN" & score < 0,
+                                     "negative", sentiment))) %>%
+  group_by(lexicon) %>%
+  mutate(words_in_lexicon = n_distinct(word)) %>%
+  ungroup()
+
+new_sentiments %>%
+  group_by(lexicon, sentiment, words_in_lexicon) %>%
+  summarise(distinct_words = n_distinct(word)) %>%
+  ungroup() %>%
+  spread(sentiment, distinct_words) %>%
+  mutate(lexicon = color_tile("lightblue", "lightblue")(lexicon),
+         words_in_lexicon = color_bar("lightpink")(words_in_lexicon)) %>%
+  my_kable_styling(caption = "Word Counts Per Lexicon")
+```
+
+###Split Enz song ratings over time
+
+In order to determine which lexicon is more applicable to the lyrics, we look at the match ratio of words that are common to both the lexicon and the lyrics. As a reminder, there are 17687 total words in splitenz_tidy and 2067 distinct words in splitenz_tidy2.
+
+So how many of those words are actually in the lexicons?
+
+Use an inner_join() between Split_Enz_2 and new_sentiments and then group by lexicon. The NRC lexicon has 10 different categories, and a word may appear in more than one category: that is, words can be negative and sad. That means that you'll want to use n_distinct() in summarise() to get the distinct word count per lexicon.
+
+```{r message=FALSE, warning = FALSE, fig.width = 12, fig.height = 6, fig.align = "center"}
+splitenz_tidy2 %>%
+#  unnest_tokens(word, lyrics) %>%
+  mutate(words_in_lyrics = n_distinct(word)) %>%
+  inner_join(new_sentiments) %>%
+  group_by(lexicon, words_in_lyrics, words_in_lexicon) %>%
+  summarise(lex_match_words = n_distinct(word)) %>%
+  ungroup() %>%
+  mutate(total_match_words = sum(lex_match_words), #Not used but good to have
+         match_ratio = lex_match_words / words_in_lyrics) %>%
+  select(lexicon, lex_match_words,  words_in_lyrics, match_ratio) %>%
+  mutate(lex_match_words = color_bar("lightblue")(lex_match_words),
+         lexicon = color_tile("lightgreen", "lightgreen")(lexicon)) %>%
+  my_kable_styling(caption = "Lyrics Found In Lexicons")
+
+```
+
+
+###Create Sentiment Datasets
+Start off by creating Split Enz sentiment datasets for each of the lexicons by performing an inner_join() on the get_sentiments() function. Pass the name of the lexicon for each call. For this exercise, use Bing for binary and NRC for categorical sentiments. Since words can appear in multiple categories in NRC, such as Negative/Fear or Positive/Joy, you'll also create a subset without the positive and negative categories to use later on.
+
+```{r message=FALSE, warning = FALSE, fig.width = 6, fig.height = 4, fig.align = "center"}
+splitEnz2_bing2 <- splitenz_tidy2 %>%
+  inner_join(get_sentiments("bing"))
+splitEnz2_nrc2 <- splitenz_tidy2 %>%
+  inner_join(get_sentiments("nrc"))
+splitEnz2_nrc_sub2 <- splitenz_tidy2 %>%
+  inner_join(get_sentiments("nrc")) %>%
+  filter(!sentiment %in% c("positive", "negative"))
+```
+
+
+###Split Enz Lyrics Sentiment (NRC) Summary Plot
+As discussed the NRC Lexicon looks at a range of sentiments.  The chart below gives an overview of the senitment by word count.
+
+```{r message=FALSE, warning = FALSE, fig.width = 6, fig.height = 4, fig.align = "center"}
+nrc_plot <- splitEnz2_nrc2 %>%
+  group_by(sentiment) %>%
+  summarise(word_count = n()) %>%
+  ungroup() %>%
+  mutate(sentiment = reorder(sentiment, word_count)) %>%
+  #Use `fill = -word_count` to make the larger bars darker
+  ggplot(aes(sentiment, word_count, fill = -word_count)) +
+  geom_col() +
+  guides(fill = FALSE) + #Turn off the legend
+  scale_y_continuous(limits = c(0, 900),breaks=seq(0,900,100)) + #Hard code the axis limit
+  ggtitle("Split ENZ NRC Sentiment") +
+  coord_flip()
+nrc_plot
+
+```
+
+###Split Enz Chart Level Positive vs. Negative Sentiment
+
+
+```{r message=FALSE, warning = FALSE, fig.width = 6, fig.height = 4, fig.align = "center"}
+splitenz_polarity_NZsong_chart <- splitEnz2_bing2 %>%
+  count(sentiment, NZsong_chart) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(polarity = positive - negative,
+    percent_positive = positive / (positive + negative) * 100)
+
+#Polarity by chart
+#plot1 <- splitenz_polarity_NZsong_chart %>%
+#  ggplot( aes(NZsong_chart, polarity, fill = NZsong_chart)) +
+#  geom_col() +
+#  scale_fill_manual(values = my_colors[3:5]) +
+#  geom_hline(yintercept = 0, color = "red") +
+#  theme_lyrics() +
+#  theme(plot.title = element_text(size = 11)) +
+#  xlab(NULL) + ylab(NULL) +
+#  ggtitle("Polarity By Chart Level")
+
+#Percent positive by chart
+plot2 <- splitenz_polarity_NZsong_chart %>%
+  ggplot(aes(NZsong_chart, percent_positive, fill = NZsong_chart)) +
+  geom_col() +
+  scale_fill_manual(values = c("darkred","darkorange3","dodgerblue4")) +
+  geom_hline(yintercept = 0, color = "red") +
+#  theme_lyrics() +
+  theme(plot.title = element_text(size = 11)) +
+  xlab(NULL) + ylab(NULL) +
+  ggtitle("Percent Positive By Chart Level")
+plot2
+#grid.arrange(plot1, plot2, ncol = 2)
+```
+
+Top 10 hits have a lower positive sentiment than Top 100 hits which in turn have less positive sentiment than Uncharted Split Enz hits.
+
+```{r}
+splitenz_polarity_NZsong_chart
+```
+
+###Split Enz Sentiment by Period
+
+As can be seen in the radar plot below there is higher fear, disgust and surprise sentiments in the 1980 - 1982 year period which has all of the *Top 10* hits.  The period 1975 - 1979 has the highest *trust, joy* and *sadness*. 1983 and 1984 has the highest *anticipation* sentiment.
+
+```{r message=FALSE, warning = FALSE, fig.width = 6, fig.height = 4, fig.align = "center"}
+library(radarchart)
+
+#Get the count of words per sentiment per period
+period_sentiment_nrc <- splitEnz2_nrc_sub2 %>%
+  group_by(period, sentiment) %>%
+  count(period, sentiment) %>%
+  select(period, sentiment, sentiment_period_count = n)
+
+#Get the total count of sentiment words per period (not distinct)
+total_sentiment_period <- splitEnz2_nrc_sub2 %>%
+  count(period) %>%
+  select(period, period_total = n)
+
+#Join the two and create a percent field
+
+period_radar_chart <- period_sentiment_nrc %>%
+  inner_join(total_sentiment_period, by = "period") %>%
+  mutate(percent = sentiment_period_count / period_total * 100 ) %>%
+  select(-sentiment_period_count, -period_total) %>%
+  spread(period, percent) %>%
+  chartJSRadar(showToolTipLabel = TRUE,
+               main = "Split Enz Sentiment (NRC) by Period",
+               labelSize = 22)
+period_radar_chart
+```
+
+
+
+###Split Enz Sentiment by words "Top 10" Years 1980 - 1982
+
+```{r message=FALSE, warning = FALSE, fig.width = 6, fig.height = 4, fig.align = "center"}
+plot_words_80_82 <- splitEnz2_nrc2 %>%
+  filter(year %in% c("1980", "1981", "1982")) %>%
+  group_by(sentiment) %>%
+  count(word, sort = TRUE) %>%
+  arrange(desc(n)) %>%
+  slice(seq_len(8)) %>% #consider top_n() from dplyr also
+  ungroup()
+
+plot_words_80_82 %>%
+  #Set `y = 1` to just plot one variable and use word as the label
+  ggplot(aes(word, 1, label = word, fill = sentiment)) +
+  #You want the words, not the points
+  geom_point(color = "transparent") +
+  #Make sure the labels don't overlap
+  geom_label_repel(force = 1,nudge_y = .5,  
+                   direction = "y",
+                   box.padding = 0.04,
+                   segment.color = "transparent",
+                   size = 3) +
+  facet_grid(~sentiment) +
+  scale_fill_manual(values = rainbow_hcl(12)) +
+  theme_lyrics() +
+  theme(axis.text.y = element_blank(), axis.text.x = element_blank(),
+        axis.title.x = element_text(size = 6),
+        panel.grid = element_blank(), panel.background = element_blank(),
+        panel.border = element_rect("lightgray", fill = NA),
+        strip.text.x = element_text(size = 9)) +
+  xlab(NULL) + ylab(NULL) +
+  ggtitle("1980 - 1982 Sentiment NRC") +
+  coord_flip()
+
+```
+
+The theme of the "Iris" song is about a possible future relationship never realised.  
+
+###Split Enz Yearly Sentiment 1980-1982
+
+```{r message=FALSE, warning = FALSE, fig.width = 6, fig.height = 4, fig.align = "center"}
+#Get the count of words per sentiment per period
+year_sentiment_nrc <- splitEnz2_nrc_sub2 %>%
+   group_by(year, sentiment) %>%
+   filter(year > 1979,year < 1983) %>%
+   count(year, sentiment) %>%
+   select(year, sentiment, sentiment_year_count = n)
+ 
+#Get the total count of sentiment words per period (not distinct)
+total_sentiment_year <- splitEnz2_nrc_sub2 %>%
+   count(year) %>%
+   select(year, year_total = n)
+ 
+ #Join the two and create a percent field
+year_radar_chart <- year_sentiment_nrc %>%
+   inner_join(total_sentiment_year, by = "year") %>%
+   mutate(percent = sentiment_year_count / year_total * 100 ) %>%
+   select(-sentiment_year_count, -year_total) %>%
+   spread(year, percent) %>%
+   chartJSRadar(showToolTipLabel = TRUE,
+                main = "Split Enz Sentiment (NRC) for Years 1980, 1981, 1982")
+year_radar_chart
+```
+
+###Year for Fears - 1981
+
+Why does the no.1 charting album "Waiata/Coroboree" released in April 1981 has more fear sentiment compared to the no.1 1980 "True Colours" and 1982 "Time and Tide" albums?
+
+1981 definitely did have some scary major events both before and after the album release:
+
+- The Springbok tour
+
+- Australian cricketer Greg Chappel's under arm bowling incident
+
+- The "Orchestrated Litany of Lies" statement made when Justice Peter Mahon released his report into the Erebus Air Crash Disaster
+
+The lyrics of the songs in "Waiata" have a lot of words in the *fear* sentiment. Some of the songs with fearful lyrics included the Top 10 hits "One Step Ahead" and "History Never Repeats", and most of the other songs also have words in the *fear* sentiment.
+
+###"Waiata" Album song Sentiment 
+
+Lets feel the fear and do it anyway and take a look at some 1981 songs:
+
+```{r message=FALSE, warning = FALSE, fig.width = 8, fig.height = 4, fig.align = "center"}
+splitEnz2_nrc_sub2 %>%
+  filter(songs %in% c("One Step Ahead", "History Never Repeats", "Ghost Girl","Iris", "Walking Through The Ruins","Hard Act To Follow")) %>%
+  count(songs, sentiment, year) %>%
+  mutate(sentiment = reorder(sentiment, n), songs = reorder(songs, n)) %>%
+  ggplot(aes(sentiment, n, fill = sentiment)) +
+  geom_col() +
+  facet_wrap(year ~ songs, scales = "free_x", labeller = label_both) +
+    scale_fill_manual(values = rainbow_hcl(8)) +
+  theme_lyrics() +
+  theme(panel.grid.major.x = element_blank(),
+        axis.text.x = element_blank()) +
+  labs(x = NULL, y = NULL) +
+  ggtitle("Split Enz 1981 'Waiata'/'Coroboree' Album Song Sentiment Analysis (NRC)") +
+  coord_flip()
+```
+
+As you can see the songs "Ghost Girl"" and "Hard Act To Follow" really ramp up the *fear*, in particular the theme of not forming a relationship and rejection.  This theme is also echoed in the hit songs "One Step Ahead" and "History Never Repeats" and indeed across many of the songs on the album.
+
+The word "Iris" in the song "Iris" refers to *"The girl with the lovely name"* and is counted as fear in the NRC lexicon. The Iris flower often associated with the rainbow connection between heaven and earth, sometimes the Iris is a flower used in funerals to symbolise ascension. So, a *fear* association may or may not have been Neil Finn's intention for the word "Iris" in this song and if so may be incorrectly attributed.
+
+```{r message=FALSE, warning = FALSE, fig.width = 6, fig.height = 4, fig.align = "center"}
+plot_words_83_84 <- splitEnz2_nrc2 %>%
+  filter(year %in% c("1983", "1984")) %>%
+  group_by(sentiment) %>%
+  count(word, sort = TRUE) %>%
+  arrange(desc(n)) %>%
+  slice(seq_len(8)) %>% #consider top_n() from dplyr also
+  ungroup()
+
+plot_words_83_84 %>%
+  #Set `y = 1` to just plot one variable and use word as the label
+  ggplot(aes(word, 1, label = word, fill = sentiment )) +
+  #You want the words, not the points
+  geom_point(color = "transparent") +
+  #Make sure the labels don't overlap
+  geom_label_repel(force = 1,nudge_y = .5,  
+                   direction = "y",
+                   box.padding = 0.04,
+                   segment.color = "transparent",
+                   size = 3) +
+  facet_grid(~sentiment) +
+  scale_fill_manual(values = rainbow_hcl(12)) +
+  theme_lyrics() +
+  theme(axis.text.y = element_blank(), axis.text.x = element_blank(),
+        axis.title.x = element_text(size = 6),
+        panel.grid = element_blank(), panel.background = element_blank(),
+        panel.border = element_rect("lightgray", fill = NA),
+        strip.text.x = element_text(size = 9)) +
+  xlab(NULL) + ylab(NULL) +
+  ggtitle("1983 - 1984 Sentiment NRC") +
+  coord_flip()
+
+```
+
+```{r message=FALSE, warning = FALSE, fig.width = 6, fig.height = 4, fig.align = "center"}
+plot_words_75_79 <- splitEnz2_nrc2 %>%
+  filter(year %in% c("1975", "1976","1977","1978","1979")) %>%
+  group_by(sentiment) %>%
+  count(word, sort = TRUE) %>%
+  arrange(desc(n)) %>%
+  slice(seq_len(8)) %>% #consider top_n() from dplyr also
+  ungroup()
+
+plot_words_75_79 %>%
+  #Set `y = 1` to just plot one variable and use word as the label
+  ggplot(aes(word, 1, label = word, fill = sentiment )) +
+  #You want the words, not the points
+  geom_point(color = "transparent") +
+  #Make sure the labels don't overlap
+  geom_label_repel(force = 1,nudge_y = .5,  
+                   direction = "y",
+                   box.padding = 0.04,
+                   segment.color = "transparent",
+                   size = 3) +
+  facet_grid(~sentiment) +
+    scale_fill_manual(values = rainbow_hcl(12)) +
+  theme_lyrics() +
+  theme(axis.text.y = element_blank(), axis.text.x = element_blank(),
+        axis.title.x = element_text(size = 6),
+        panel.grid = element_blank(), panel.background = element_blank(),
+        panel.border = element_rect("lightgray", fill = NA),
+        strip.text.x = element_text(size = 9)) +
+  xlab(NULL) + ylab(NULL) +
+  ggtitle("1975 - 1979 Sentiment NRC") +
+  coord_flip()
+
+```
+
+###Split Enz Sentiment by NZ Song Chart Level
+
+```{r message=FALSE, warning = FALSE, fig.width = 6, fig.height = 4, fig.align = "center"}
+#Get the count of words per sentiment per period
+NZsong_chart_sentiment_nrc <- splitEnz2_nrc_sub2 %>%
+   group_by(NZsong_chart, sentiment) %>%
+   count(NZsong_chart, sentiment) %>%
+   select(NZsong_chart, sentiment, sentiment_NZsong_chart_count = n)
+ 
+#Get the total count of sentiment words per period (not distinct)
+total_sentiment_NZsong_chart <- splitEnz2_nrc_sub2 %>%
+   count(NZsong_chart) %>%
+   select(NZsong_chart, NZsong_chart_total = n)
+ 
+ #Join the two and create a percent field
+NZsong_chart_radar_chart <- NZsong_chart_sentiment_nrc %>%
+   inner_join(total_sentiment_NZsong_chart, by = "NZsong_chart") %>%
+   mutate(percent = sentiment_NZsong_chart_count / NZsong_chart_total * 100 ) %>%
+   select(-sentiment_NZsong_chart_count, -NZsong_chart_total) %>%
+   spread(NZsong_chart, percent) %>%
+   chartJSRadar(showToolTipLabel = TRUE,
+                main = "Split Enz Sentiment (NRC) by NZsong_chart")
+NZsong_chart_radar_chart
+```
+
+Sentiments of *fear* and *disgust* are highest in Split Enz Top 10 hits and *joy* is one of the lowest! Because Split Enz had only 5 Top 10 hits the high word count and diversity of the song "Dirty Creature" combined with its very high *disgust* sentiment is a significant contributor to the Top 10 sentiment radar profile in the chart above.  
+
+###Split Enz Top 10 Songs Sentiment 
+
+More detail is shown in the Split Enz Top 10 song sentiment bar chart below:
+
+```{r message=FALSE, warning = FALSE, fig.width = 8, fig.height = 4, fig.align = "center"}
+splitEnz2_nrc_sub2 %>%
+  filter(songs %in% c("One Step Ahead", "History Never Repeats", "I Got You","Dirty Creature", "Six Months In A Leaky Boat")) %>%
+  count(songs, sentiment, year) %>%
+  mutate(sentiment = reorder(sentiment, n), songs = reorder(songs, n)) %>%
+  ggplot(aes(sentiment, n, fill = sentiment)) +
+  geom_col() +
+  facet_wrap(year ~ songs, scales = "free_x", labeller = label_both) +
+  scale_fill_manual(values = rainbow_hcl(8)) +
+  theme_lyrics() +
+  theme(panel.grid.major.x = element_blank(),
+        axis.text.x = element_blank()) +
+  labs(x = NULL, y = NULL) +
+  ggtitle("Split Enz Top 10 Songs Sentiment Analysis (NRC)") +
+  coord_flip()
+```
+
+Looking closer at the hits one of the most common *fear* themes is *relationship rejection*. An example is the lyric *"I don't know why sometimes I get frightened"* from the hit "I Got You".  Another example is this line *"There was a girl I used to know, She dealt my love a savage blow"* from the hit song "History Never Repeats".  The self-awareness of the creature inside in the hit song "Dirty Creature" is a sentiment of *disgust* for example these lyrics: *"Dirty creature's got me at a disadvantage from the inside.....I know that he is a slime and he has a stink and a stench of the filth that reins within".*
+
+###Bigrams by Period
+
+So far we have only been looking at unigrams or single words. But if "wanna" is a common word, what precedes it? Or follows it? Looking at single words out of context could be misleading. So, now it's time to look at some bigrams or word pairs.
+
+The tidytext package provides the ability to unnest pairs of words as well as single words. We call unnest_tokens() passing the token argument ngrams. Since we're just looking at bigrams (two consecutive words), pass n = 2. Use *splitenz_bigrams* to store the results.
+
+The tidyr package provides the ability to separate the bigrams into individual words using the separate() function. In order to remove the stop words and undesirable words, you'll want to break the bigrams apart and filter out what you don't want, then use unite() to put the word pairs back together. This makes it easy to visualize the most common bigrams per decade. (See Part One for an explanation of slice() and row_number())
+
+
+```{r message=FALSE, warning = FALSE, fig.width = 6, fig.height = 4, fig.align = "center"}
+
+splitenz_bigrams <- Split_Enz_2_cat %>%
+  unnest_tokens(bigram, lyrics, token = "ngrams", n = 2)
+
+bigrams_separated <- splitenz_bigrams %>%
+  separate(bigram, c("word1", "word2"), sep = " ")
+
+bigrams_filtered <- bigrams_separated %>%
+  filter(!word1 %in% stop_words$word) %>%
+  filter(!word2 %in% stop_words$word)
+
+#Because there is so much repetition in music, also filter out the cases where the two words are the same
+bigram_period <- bigrams_filtered %>%
+  filter(word1 != word2) %>%
+  unite(bigram, word1, word2, sep = " ") %>%
+  inner_join(Split_Enz_2_cat) %>%
+  count(bigram, period, sort = TRUE) %>%
+  group_by(period) %>%
+  slice(seq_len(10)) %>%
+  ungroup() %>%
+  arrange(period, n) %>%
+  mutate(row = row_number())
+
+bigram_period %>%
+  ggplot(aes(row, n, fill = period)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~period, scales = "free_y") +
+  xlab(NULL) + ylab(NULL) +
+  scale_fill_manual(values = c("dodgerblue4","darkred","darkorange3")) +
+  scale_x_continuous(  # This handles replacement of row
+      breaks = bigram_period$row, # Notice need to reuse data frame
+      labels = bigram_period$bigram) +
+#  theme_lyrics() +
+  theme(panel.grid.major.x = element_blank()) +
+  ggtitle("Bigrams per Time Period") +
+  coord_flip()
+```
